@@ -1,0 +1,34 @@
+hotel_id: moravskygrunt
+previo:
+  api_url: https://api.previo.app/
+  login: "<PREVIO_LOGIN>"
+  password: "<PREVIO_PASSWORD>"
+  hot_id: 2
+  lan_id: 1
+  search:
+    statuses: [1, 2, 3]
+    window_days_before: 1
+    window_days_after: 1
+    limit: 200
+loxone:
+  cloud_dns_host: dns.loxonecloud.com/504F94D0D93F
+  serial_number: 504F94D0D93F
+  username: plusconnect
+  password: plusconnect123
+  https: true
+  verify_tls: true
+  permission: 4
+  client_uuid: "098802e1-02b4-603c-ffffeee000d80cfd"
+  client_info: "plusconnect-sync"
+dashboard:
+  read_key: "<GENERATED_AT_RUNTIME>"
+  basic_auth_user: moravskygrunt
+  basic_auth_password: admin
+sync:
+  interval_minutes: 5
+  delete_after_hours: 48
+  offset_minutes_before: 0
+  offset_minutes_after: 0
+logging:
+  file: logs/moravskygrunt.log
+timezone: null
