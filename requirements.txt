@@ -9,4 +9,4 @@ python-multipart==0.0.8
 pydantic==1.10.15
 cryptography==42.0.7
 pendulum==2.1.2
-tenacity==8.3.0
+tenacity==8.2.3
