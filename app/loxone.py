@@ -27,11 +27,13 @@ class LoxoneClient:
         self.base_host = cfg.loxone.cloud_dns_host
         self.scheme = "https" if cfg.loxone.https else "http"
         self.verify = cfg.loxone.verify_tls if verify_override is None else verify_override
+        self.follow_redirects = True
 
     def _url(self, path: str) -> str:
         return f"{self.scheme}://{self.base_host}/{path.lstrip('/')}"
 
     async def _request(self, client: httpx.AsyncClient, method: str, url: str, **kwargs) -> httpx.Response:
+        kwargs.setdefault("follow_redirects", self.follow_redirects)
         try:
             resp = await client.request(method, url, **kwargs)
             resp.raise_for_status()

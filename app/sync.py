@@ -87,7 +87,7 @@ class SyncService:
 
         previo = PrevioClient(cfg)
         lox = LoxoneClient(cfg, verify_override=lox_verify)
-        async with httpx.AsyncClient() as previo_client, httpx.AsyncClient(verify=lox_verify) as lox_client:
+        async with httpx.AsyncClient() as previo_client, httpx.AsyncClient(verify=lox_verify, follow_redirects=True) as lox_client:
             start_date, end_date = previo.compute_window(now, cfg.timezone or "UTC", before, after)
             try:
                 reservations = await previo.search_reservations(previo_client, start_date, end_date)
