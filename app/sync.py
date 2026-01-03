@@ -23,6 +23,19 @@ class SyncService:
         self.configs = configs
         self.running = False
 
+    def _err_str(self, exc: Exception) -> str:
+        try:
+            from tenacity import RetryError  # local import to avoid hard dependency at module import time
+
+            if isinstance(exc, RetryError):
+                last_exc = exc.last_attempt.exception() if exc.last_attempt else None
+                if last_exc:
+                    return f"{type(last_exc).__name__}: {last_exc}"
+                return str(exc)
+        except Exception:
+            pass
+        return str(exc)
+
     async def ensure_defaults(self):
         from .db import Base, engine
 
@@ -100,7 +113,7 @@ class SyncService:
             try:
                 groups = await lox.get_group_map(client)
             except Exception as exc:
-                persist_log(hotel_id, "ERROR", f"Loxone get groups failed: {exc}")
+                persist_log(hotel_id, "ERROR", f"Loxone get groups failed: {self._err_str(exc)}")
                 return
 
             for res in reservations:
