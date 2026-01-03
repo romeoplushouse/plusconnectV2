@@ -131,6 +131,11 @@ class LoxoneClient:
             ll = root.get("LL", {})
             if not isinstance(ll, dict):
                 raise LoxoneAuthError(f"Unexpected getgrouplist LL type: {type(ll)} body={body_snippet}")
+            code = ll.get("Code")
+            if code and str(code) != "200":
+                raise LoxoneAuthError(
+                    f"getgrouplist returned Code={code} control={ll.get('control')} body={body_snippet}"
+                )
             payload = ll.get("value", [])
             if not isinstance(payload, list):
                 raise LoxoneAuthError(f"Unexpected getgrouplist payload type: {type(payload)} body={body_snippet}")
