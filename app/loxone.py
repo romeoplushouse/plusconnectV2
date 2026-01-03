@@ -31,10 +31,22 @@ class LoxoneClient:
     def _url(self, path: str) -> str:
         return f"{self.scheme}://{self.base_host}/{path.lstrip('/')}"
 
+    async def _request(self, client: httpx.AsyncClient, method: str, url: str, **kwargs) -> httpx.Response:
+        try:
+            resp = await client.request(method, url, **kwargs)
+            resp.raise_for_status()
+            return resp
+        except httpx.RequestError as exc:
+            raise LoxoneAuthError(f"{method} {url} request failed: {exc}") from exc
+        except httpx.HTTPStatusError as exc:
+            body = exc.response.text[:200]
+            raise LoxoneAuthError(
+                f"{method} {url} HTTP {exc.response.status_code}: {body}"
+            ) from exc
+
     async def _getkey2(self, client: httpx.AsyncClient) -> Dict[str, Any]:
         url = self._url(f"jdev/sys/getkey2/{self.cfg.loxone.username}")
-        resp = await client.get(url, timeout=20)
-        resp.raise_for_status()
+        resp = await self._request(client, "GET", url, timeout=20)
         data = resp.json().get("LL", {}).get("value", {})
         return data
 
@@ -67,8 +79,7 @@ class LoxoneClient:
             f"{self.cfg.loxone.client_info}"
         )
         url = self._url(cmd)
-        resp = await client.get(url, timeout=20)
-        resp.raise_for_status()
+        resp = await self._request(client, "GET", url, timeout=20)
         value = resp.json().get("LL", {}).get("value", {})
         token = value.get("token")
         token_key = value.get("key")
@@ -87,13 +98,7 @@ class LoxoneClient:
     async def get_group_map(self, client: httpx.AsyncClient) -> Dict[str, str]:
         params = await self._auth_params(client)
         url = self._url("jdev/sps/getgrouplist")
-        try:
-            resp = await client.get(url, params=params, timeout=20)
-            resp.raise_for_status()
-        except httpx.RequestError as exc:
-            raise LoxoneAuthError(f"getgrouplist request failed: {exc}") from exc
-        except httpx.HTTPStatusError as exc:
-            raise LoxoneAuthError(f"getgrouplist HTTP {exc.response.status_code}: {exc.response.text[:200]}") from exc
+        resp = await self._request(client, "GET", url, params=params, timeout=20)
         try:
             root = resp.json()
         except Exception as exc:
@@ -122,8 +127,7 @@ class LoxoneClient:
     async def check_userid(self, client: httpx.AsyncClient, userid: str) -> Optional[str]:
         params = await self._auth_params(client)
         url = self._url(f"jdev/sps/checkuserid/{userid}")
-        resp = await client.get(url, params=params, timeout=20)
-        resp.raise_for_status()
+        resp = await self._request(client, "GET", url, params=params, timeout=20)
         val = resp.json().get("LL", {}).get("value", {})
         return val.get("uuid") if val else None
 
@@ -133,8 +137,7 @@ class LoxoneClient:
         if uuid:
             payload["uuid"] = uuid
         url = self._url("jdev/sps/addoredituser")
-        resp = await client.post(url, params=params, json=payload, timeout=20)
-        resp.raise_for_status()
+        resp = await self._request(client, "POST", url, params=params, json=payload, timeout=20)
         val = resp.json().get("LL", {}).get("value")
         if not val:
             raise LoxoneAuthError("addoredituser returned empty value")
@@ -144,16 +147,14 @@ class LoxoneClient:
     async def update_access_code(self, client: httpx.AsyncClient, uuid: str, code: str):
         params = await self._auth_params(client)
         url = self._url(f"jdev/sps/updateuseraccesscode/{uuid}/{code}")
-        resp = await client.get(url, params=params, timeout=20)
-        resp.raise_for_status()
+        resp = await self._request(client, "GET", url, params=params, timeout=20)
         return resp.json().get("LL", {}).get("Code")
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
     async def delete_user(self, client: httpx.AsyncClient, uuid: str):
         params = await self._auth_params(client)
         url = self._url(f"jdev/sps/deleteuser/{uuid}")
-        resp = await client.get(url, params=params, timeout=20)
-        resp.raise_for_status()
+        await self._request(client, "GET", url, params=params, timeout=20)
 
     @staticmethod
     def to_seconds_since_2009(dt_value: dt.datetime) -> int:
