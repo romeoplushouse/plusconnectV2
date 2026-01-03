@@ -24,6 +24,13 @@ def verify_basic(credentials: HTTPBasicCredentials, cfg: HotelConfig):
         raise HTTPException(status_code=401, detail="Unauthorized", headers={"WWW-Authenticate": "Basic"})
 
 
+def verify_any_basic(credentials: HTTPBasicCredentials, hotels: Dict[str, HotelConfig]):
+    for cfg in hotels.values():
+        if credentials.username == cfg.dashboard.basic_auth_user and credentials.password == cfg.dashboard.basic_auth_password:
+            return
+    raise HTTPException(status_code=401, detail="Unauthorized", headers={"WWW-Authenticate": "Basic"})
+
+
 def require_key(request: Request, cfg: HotelConfig):
     key = request.query_params.get("key")
     if key != cfg.dashboard.read_key:
@@ -45,7 +52,12 @@ from .deps import get_hotels
 
 
 @router.get("/", response_class=HTMLResponse)
-async def dashboard_root(request: Request, hotels: Dict[str, HotelConfig] = Depends(get_hotels)):
+async def dashboard_root(
+    request: Request,
+    hotels: Dict[str, HotelConfig] = Depends(get_hotels),
+    credentials: HTTPBasicCredentials = Depends(security),
+):
+    verify_any_basic(credentials, hotels)
     items = []
     with session_scope() as session:
         for hotel_id, cfg in hotels.items():
@@ -62,10 +74,16 @@ async def dashboard_root(request: Request, hotels: Dict[str, HotelConfig] = Depe
 
 
 @router.get("/hotels/{hotel_id}", response_class=HTMLResponse)
-async def hotel_detail(request: Request, hotel_id: str, hotels: Dict[str, HotelConfig] = Depends(get_hotels)):
+async def hotel_detail(
+    request: Request,
+    hotel_id: str,
+    hotels: Dict[str, HotelConfig] = Depends(get_hotels),
+    credentials: HTTPBasicCredentials = Depends(security),
+):
     cfg = hotels.get(hotel_id)
     if not cfg:
         raise HTTPException(status_code=404, detail="Hotel not found")
+    verify_basic(credentials, cfg)
     require_key(request, cfg)
     with session_scope() as session:
         state = session.get(HotelState, hotel_id)
