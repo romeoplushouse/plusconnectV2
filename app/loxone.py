@@ -89,8 +89,13 @@ class LoxoneClient:
         url = self._url("jdev/sps/getgrouplist")
         resp = await client.get(url, params=params, timeout=20, verify=self.verify)
         resp.raise_for_status()
-        groups = resp.json().get("LL", {}).get("value", [])
-        return {g.get("name"): g.get("uuid") for g in groups if g.get("name") and g.get("uuid")}
+        payload = resp.json().get("LL", {}).get("value", [])
+        if not isinstance(payload, list):
+            raise LoxoneAuthError(f"Unexpected getgrouplist payload type: {type(payload)}")
+        groups = {g.get("name"): g.get("uuid") for g in payload if isinstance(g, dict) and g.get("name") and g.get("uuid")}
+        if not groups:
+            raise LoxoneAuthError("No groups returned from getgrouplist")
+        return groups
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
     async def check_userid(self, client: httpx.AsyncClient, userid: str) -> Optional[str]:
