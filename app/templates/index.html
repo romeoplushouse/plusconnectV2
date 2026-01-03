@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <title>Plusconnect Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --green: rgb(181, 225, 38);
+      --bg: #000;
+      --text: rgb(181, 225, 38);
+    }
+    body { font-family: 'Montserrat', sans-serif; background: var(--bg); color: var(--text); margin:0; padding:24px; }
+    .card { border:1px solid var(--green); border-radius:12px; padding:16px; margin-bottom:12px; background: #0c0c0c; }
+    a { color: var(--green); text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    h1 { margin-top:0; }
+    .meta { display:flex; gap:16px; flex-wrap:wrap; }
+    .chip { padding:6px 10px; border-radius:8px; border:1px solid var(--green); font-size:12px; }
+  </style>
+</head>
+<body>
+  <h1>Plusconnect Dashboard</h1>
+  {% for item in hotels %}
+    <div class="card">
+      <h2>{{ item.hotel_id }}</h2>
+      <div class="meta">
+        <div class="chip">Last sync: {{ item.last_sync or '—' }}</div>
+        <div class="chip">Last success: {{ item.last_success or '—' }}</div>
+      </div>
+      <p><a href="/hotels/{{ item.hotel_id }}?key={{ item.read_key }}">Detail</a></p>
+    </div>
+  {% endfor %}
+</body>
+</html>
