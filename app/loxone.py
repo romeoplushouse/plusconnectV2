@@ -28,6 +28,9 @@ class LoxoneClient:
         self.scheme = "https" if cfg.loxone.https else "http"
         self.verify = cfg.loxone.verify_tls if verify_override is None else verify_override
 
+    def _ctx(self) -> str:
+        return f"host={self.base_host} scheme={self.scheme} verify={self.verify} user={self.cfg.loxone.username}"
+
     def _url(self, path: str) -> str:
         return f"{self.scheme}://{self.base_host}/{path.lstrip('/') }"
 
@@ -49,9 +52,9 @@ class LoxoneClient:
                     break
             except httpx.HTTPStatusError as exc:
                 raise LoxoneAuthError(
-                    f"getkey2 HTTP {exc.response.status_code}: {exc.response.text[:200]} (verify={verify_opt})"
+                    f"getkey2 HTTP {exc.response.status_code}: {exc.response.text[:200]} (verify={verify_opt}) ctx={self._ctx()}"
                 ) from exc
-        raise LoxoneAuthError(f"getkey2 request failed (verify={self.verify}): {last_exc}")
+        raise LoxoneAuthError(f"getkey2 request failed (verify={self.verify}) ctx={self._ctx()}: {last_exc}")
 
     def _hash_password(self, password: str, salt: str, hash_alg: str) -> str:
         algo = hashlib.sha256 if hash_alg.lower() == "sha256" else hashlib.sha1
@@ -103,9 +106,9 @@ class LoxoneClient:
                     break
             except httpx.HTTPStatusError as exc:
                 raise LoxoneAuthError(
-                    f"getjwt HTTP {exc.response.status_code}: {exc.response.text[:200]} (verify={verify_opt})"
+                    f"getjwt HTTP {exc.response.status_code}: {exc.response.text[:200]} (verify={verify_opt}) ctx={self._ctx()}"
                 ) from exc
-        raise LoxoneAuthError(f"getjwt request failed (verify={self.verify}): {last_exc}")
+        raise LoxoneAuthError(f"getjwt request failed (verify={self.verify}) ctx={self._ctx()}: {last_exc}")
 
     def _token_hash(self, token: str, key_hex: str) -> str:
         return hmac.new(bytes.fromhex(key_hex), token.encode("utf-8"), hashlib.sha1).hexdigest()
