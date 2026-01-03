@@ -87,8 +87,13 @@ class LoxoneClient:
     async def get_group_map(self, client: httpx.AsyncClient) -> Dict[str, str]:
         params = await self._auth_params(client)
         url = self._url("jdev/sps/getgrouplist")
-        resp = await client.get(url, params=params, timeout=20, verify=self.verify)
-        resp.raise_for_status()
+        try:
+            resp = await client.get(url, params=params, timeout=20, verify=self.verify)
+            resp.raise_for_status()
+        except httpx.RequestError as exc:
+            raise LoxoneAuthError(f"getgrouplist request failed: {exc}") from exc
+        except httpx.HTTPStatusError as exc:
+            raise LoxoneAuthError(f"getgrouplist HTTP {exc.response.status_code}: {exc.response.text[:200]}") from exc
         try:
             root = resp.json()
         except Exception as exc:
@@ -96,7 +101,10 @@ class LoxoneClient:
         if not isinstance(root, dict):
             raise LoxoneAuthError(f"Unexpected getgrouplist root type: {type(root)} body={resp.text[:200]}")
         try:
-            payload = root.get("LL", {}).get("value", [])
+            ll = root.get("LL", {})
+            if not isinstance(ll, dict):
+                raise LoxoneAuthError(f"Unexpected getgrouplist LL type: {type(ll)} body={resp.text[:200]}")
+            payload = ll.get("value", [])
             if not isinstance(payload, list):
                 raise LoxoneAuthError(f"Unexpected getgrouplist payload type: {type(payload)} body={resp.text[:200]}")
             groups = {
