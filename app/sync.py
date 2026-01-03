@@ -81,10 +81,10 @@ class SyncService:
     async def sync_hotel(self, hotel_id: str, cfg: HotelConfig):
         now = pendulum.now(tz=cfg.timezone or "UTC")
         logger.info("Sync start %s", hotel_id)
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient() as prev_client, httpx.AsyncClient(verify=cfg.loxone.verify_tls) as lox_client:
             previo = PrevioClient(cfg)
             lox_verify = cfg.loxone.verify_tls
-            lox = LoxoneClient(cfg)
+            lox = LoxoneClient(cfg, verify_override=lox_verify)
             # load settings overrides
             with session_scope() as session:
                 db_settings = session.get(HotelSettings, hotel_id)
@@ -102,38 +102,42 @@ class SyncService:
                     offset_after = cfg.sync.offset_minutes_after
                     delete_after = cfg.sync.delete_after_hours
 
+            # refresh lox client with DB override
             lox = LoxoneClient(cfg, verify_override=lox_verify)
-            start_date, end_date = previo.compute_window(now, cfg.timezone or "UTC", before, after)
-            try:
-                reservations = await previo.search_reservations(client, start_date, end_date)
-            except Exception as exc:
-                persist_log(hotel_id, "ERROR", f"Previo search failed: {exc}")
-                return
+            # recreate lox http client with override
+            async with httpx.AsyncClient(verify=lox_verify) as lox_client_override:
+                start_date, end_date = previo.compute_window(now, cfg.timezone or "UTC", before, after)
+                try:
+                    reservations = await previo.search_reservations(prev_client, start_date, end_date)
+                except Exception as exc:
+                    persist_log(hotel_id, "ERROR", f"Previo search failed: {exc}")
+                    return
 
-            try:
-                groups = await lox.get_group_map(client)
-            except Exception as exc:
-                persist_log(hotel_id, "ERROR", f"Loxone get groups failed: {self._err_str(exc)}")
-                return
+                try:
+                    groups = await lox.get_group_map(lox_client_override)
+                except Exception as exc:
+                    persist_log(hotel_id, "ERROR", f"Loxone get groups failed: {self._err_str(exc)}")
+                    return
 
-            for res in reservations:
-                await self._process_reservation(
-                    client, hotel_id, cfg, res, groups, offset_before, offset_after, delete_after, lox
-                )
+                for res in reservations:
+                    await self._process_reservation(
+                        prev_client, lox_client_override, hotel_id, cfg, res, groups, offset_before, offset_after, delete_after, lox
+                    )
 
-            with session_scope() as session:
-                state = session.get(HotelState, hotel_id)
-                if not state:
-                    state = HotelState(hotel_id=hotel_id)
-                    session.add(state)
-                state.last_sync_at = now
-                state.last_success_at = now
+                with session_scope() as session:
+                    state = session.get(HotelState, hotel_id)
+                    if not state:
+                        state = HotelState(hotel_id=hotel_id)
+                        session.add(state)
+                    state.last_sync_at = now
+                    state.last_success_at = now
 
-            await self._cleanup_expired(client, hotel_id, cfg, delete_after, lox)
+                await self._cleanup_expired(lox_client_override, hotel_id, cfg, delete_after, lox)
 
     async def _process_reservation(
         self,
         client: httpx.AsyncClient,
+        lox_client: httpx.AsyncClient,
         hotel_id: str,
         cfg: HotelConfig,
         reservation: dict,
@@ -171,7 +175,7 @@ class SyncService:
             return
 
         try:
-            existing_uuid = await lox.check_userid(client, userid)
+            existing_uuid = await lox.check_userid(lox_client, userid)
             payload = {
                 "name": reservation.get("guest", {}).get("name") or userid,
                 "userid": userid,
@@ -182,9 +186,9 @@ class SyncService:
                 "usergroups": [group_uuid],
                 "changePassword": False,
             }
-            uuid = await lox.add_or_edit_user(client, payload, existing_uuid)
+            uuid = await lox.add_or_edit_user(lox_client, payload, existing_uuid)
             if code:
-                await lox.update_access_code(client, uuid, code)
+                await lox.update_access_code(lox_client, uuid, code)
             expires_at = end.add(hours=delete_after)
             with session_scope() as session:
                 row = session.query(IssuedUser).filter_by(hotel_id=hotel_id, userid=userid).one_or_none()
@@ -198,7 +202,7 @@ class SyncService:
         except Exception as exc:
             persist_log(hotel_id, "ERROR", f"Failed reservation {res_id}: {exc}")
 
-    async def _cleanup_expired(self, client: httpx.AsyncClient, hotel_id: str, cfg: HotelConfig, delete_after: int, lox: LoxoneClient):
+    async def _cleanup_expired(self, lox_client: httpx.AsyncClient, hotel_id: str, cfg: HotelConfig, delete_after: int, lox: LoxoneClient):
         now = pendulum.now(tz=cfg.timezone or "UTC")
         with session_scope() as session:
             rows = session.query(IssuedUser).filter(IssuedUser.hotel_id == hotel_id).all()
@@ -206,7 +210,7 @@ class SyncService:
             if row.expires_at and now > pendulum.instance(row.expires_at):
                 try:
                     if row.loxone_uuid:
-                        await lox.delete_user(client, row.loxone_uuid)
+                        await lox.delete_user(lox_client, row.loxone_uuid)
                     with session_scope() as session:
                         session.query(IssuedUser).filter(IssuedUser.id == row.id).delete()
                     persist_log(hotel_id, "INFO", f"Deleted expired user {row.userid}")

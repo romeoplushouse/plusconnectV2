@@ -36,25 +36,20 @@ class LoxoneClient:
 
     async def _getkey2(self, client: httpx.AsyncClient) -> Dict[str, Any]:
         url = self._url(f"jdev/sys/getkey2/{self.cfg.loxone.username}")
-        last_exc: Optional[Exception] = None
-        for verify_opt in (self.verify, False) if self.verify else (self.verify,):
-            try:
-                resp = await client.get(url, timeout=20, verify=verify_opt)
-                resp.raise_for_status()
-                try:
-                    data = resp.json().get("LL", {}).get("value", {})
-                except Exception as exc:
-                    raise LoxoneAuthError(f"getkey2 invalid JSON: {exc} body={resp.text[:200]}") from exc
-                return data or {}
-            except httpx.RequestError as exc:
-                last_exc = exc
-                if verify_opt is False:
-                    break
-            except httpx.HTTPStatusError as exc:
-                raise LoxoneAuthError(
-                    f"getkey2 HTTP {exc.response.status_code}: {exc.response.text[:200]} (verify={verify_opt}) ctx={self._ctx()}"
-                ) from exc
-        raise LoxoneAuthError(f"getkey2 request failed (verify={self.verify}) ctx={self._ctx()}: {last_exc}")
+        try:
+            resp = await client.get(url, timeout=20)
+            resp.raise_for_status()
+        except httpx.RequestError as exc:
+            raise LoxoneAuthError(f"getkey2 request failed: {exc} ctx={self._ctx()}") from exc
+        except httpx.HTTPStatusError as exc:
+            raise LoxoneAuthError(
+                f"getkey2 HTTP {exc.response.status_code}: {exc.response.text[:200]} ctx={self._ctx()}"
+            ) from exc
+        try:
+            data = resp.json().get("LL", {}).get("value", {})
+        except Exception as exc:
+            raise LoxoneAuthError(f"getkey2 invalid JSON: {exc} body={resp.text[:200]}") from exc
+        return data or {}
 
     def _hash_password(self, password: str, salt: str, hash_alg: str) -> str:
         algo = hashlib.sha256 if hash_alg.lower() == "sha256" else hashlib.sha1
@@ -85,30 +80,25 @@ class LoxoneClient:
             f"{self.cfg.loxone.client_info}"
         )
         url = self._url(cmd)
-        last_exc: Optional[Exception] = None
-        for verify_opt in (self.verify, False) if self.verify else (self.verify,):
-            try:
-                resp = await client.get(url, timeout=20, verify=verify_opt)
-                resp.raise_for_status()
-                body_snippet = resp.text[:200]
-                try:
-                    value = resp.json().get("LL", {}).get("value", {})
-                except Exception as exc:
-                    raise LoxoneAuthError(f"getjwt invalid JSON: {exc} body={body_snippet}") from exc
-                token = value.get("token") if isinstance(value, dict) else None
-                token_key = value.get("key") if isinstance(value, dict) else None
-                if not token or not token_key:
-                    raise LoxoneAuthError(f"Failed to get JWT token body={body_snippet} verify={verify_opt}")
-                return token, token_key
-            except httpx.RequestError as exc:
-                last_exc = exc
-                if verify_opt is False:
-                    break
-            except httpx.HTTPStatusError as exc:
-                raise LoxoneAuthError(
-                    f"getjwt HTTP {exc.response.status_code}: {exc.response.text[:200]} (verify={verify_opt}) ctx={self._ctx()}"
-                ) from exc
-        raise LoxoneAuthError(f"getjwt request failed (verify={self.verify}) ctx={self._ctx()}: {last_exc}")
+        try:
+            resp = await client.get(url, timeout=20)
+            resp.raise_for_status()
+        except httpx.RequestError as exc:
+            raise LoxoneAuthError(f"getjwt request failed: {exc} ctx={self._ctx()}") from exc
+        except httpx.HTTPStatusError as exc:
+            raise LoxoneAuthError(
+                f"getjwt HTTP {exc.response.status_code}: {exc.response.text[:200]} ctx={self._ctx()}"
+            ) from exc
+        body_snippet = resp.text[:200]
+        try:
+            value = resp.json().get("LL", {}).get("value", {})
+        except Exception as exc:
+            raise LoxoneAuthError(f"getjwt invalid JSON: {exc} body={body_snippet}") from exc
+        token = value.get("token") if isinstance(value, dict) else None
+        token_key = value.get("key") if isinstance(value, dict) else None
+        if not token or not token_key:
+            raise LoxoneAuthError(f"Failed to get JWT token body={body_snippet}")
+        return token, token_key
 
     def _token_hash(self, token: str, key_hex: str) -> str:
         return hmac.new(bytes.fromhex(key_hex), token.encode("utf-8"), hashlib.sha1).hexdigest()
@@ -122,49 +112,46 @@ class LoxoneClient:
         try:
             params = await self._auth_params(client)
             url = self._url("jdev/sps/getgrouplist")
-            try:
-                resp = await client.get(url, params=params, timeout=20, verify=self.verify)
-                resp.raise_for_status()
-            except httpx.RequestError as exc:
-                raise LoxoneAuthError(f"getgrouplist request failed: {exc}") from exc
-            except httpx.HTTPStatusError as exc:
-                raise LoxoneAuthError(
-                    f"getgrouplist HTTP {exc.response.status_code}: {exc.response.text[:200]}"
-                ) from exc
-            body_snippet = resp.text[:500]
-            try:
-                root = resp.json()
-            except Exception as exc:
-                raise LoxoneAuthError(f"getgrouplist invalid JSON: {exc} body={body_snippet}") from exc
-            if not isinstance(root, dict):
-                raise LoxoneAuthError(f"Unexpected getgrouplist root type: {type(root)} body={body_snippet}")
-            try:
-                ll = root.get("LL", {})
-                if not isinstance(ll, dict):
-                    raise LoxoneAuthError(f"Unexpected getgrouplist LL type: {type(ll)} body={body_snippet}")
-                payload = ll.get("value", [])
-                if not isinstance(payload, list):
-                    raise LoxoneAuthError(f"Unexpected getgrouplist payload type: {type(payload)} body={body_snippet}")
-                groups = {
-                    g.get("name"): g.get("uuid")
-                    for g in payload
-                    if isinstance(g, dict) and g.get("name") and g.get("uuid")
-                }
-            except TypeError as exc:
-                raise LoxoneAuthError(f"TypeError parsing getgrouplist payload: {exc} body={body_snippet}") from exc
-            except Exception as exc:
-                raise LoxoneAuthError(f"getgrouplist parse error: {exc} body={body_snippet}") from exc
-            if not groups:
-                raise LoxoneAuthError(f"No groups returned from getgrouplist body={body_snippet}")
-            return groups
+            resp = await client.get(url, params=params, timeout=20)
+            resp.raise_for_status()
+        except httpx.RequestError as exc:
+            raise LoxoneAuthError(f"getgrouplist request failed: {exc}") from exc
+        except httpx.HTTPStatusError as exc:
+            raise LoxoneAuthError(
+                f"getgrouplist HTTP {exc.response.status_code}: {exc.response.text[:200]}"
+            ) from exc
+        body_snippet = resp.text[:500]
+        try:
+            root = resp.json()
+        except Exception as exc:
+            raise LoxoneAuthError(f"getgrouplist invalid JSON: {exc} body={body_snippet}") from exc
+        if not isinstance(root, dict):
+            raise LoxoneAuthError(f"Unexpected getgrouplist root type: {type(root)} body={body_snippet}")
+        try:
+            ll = root.get("LL", {})
+            if not isinstance(ll, dict):
+                raise LoxoneAuthError(f"Unexpected getgrouplist LL type: {type(ll)} body={body_snippet}")
+            payload = ll.get("value", [])
+            if not isinstance(payload, list):
+                raise LoxoneAuthError(f"Unexpected getgrouplist payload type: {type(payload)} body={body_snippet}")
+            groups = {
+                g.get("name"): g.get("uuid")
+                for g in payload
+                if isinstance(g, dict) and g.get("name") and g.get("uuid")
+            }
         except TypeError as exc:
-            raise LoxoneAuthError(f"TypeError in getgrouplist flow: {exc}") from exc
+            raise LoxoneAuthError(f"TypeError parsing getgrouplist payload: {exc} body={body_snippet}") from exc
+        except Exception as exc:
+            raise LoxoneAuthError(f"getgrouplist parse error: {exc} body={body_snippet}") from exc
+        if not groups:
+            raise LoxoneAuthError(f"No groups returned from getgrouplist body={body_snippet}")
+        return groups
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
     async def check_userid(self, client: httpx.AsyncClient, userid: str) -> Optional[str]:
         params = await self._auth_params(client)
         url = self._url(f"jdev/sps/checkuserid/{userid}")
-        resp = await client.get(url, params=params, timeout=20, verify=self.verify)
+        resp = await client.get(url, params=params, timeout=20)
         resp.raise_for_status()
         val = resp.json().get("LL", {}).get("value", {})
         return val.get("uuid") if val else None
@@ -175,7 +162,7 @@ class LoxoneClient:
         if uuid:
             payload["uuid"] = uuid
         url = self._url("jdev/sps/addoredituser")
-        resp = await client.post(url, params=params, json=payload, timeout=20, verify=self.verify)
+        resp = await client.post(url, params=params, json=payload, timeout=20)
         resp.raise_for_status()
         val = resp.json().get("LL", {}).get("value")
         if not val:
@@ -186,7 +173,7 @@ class LoxoneClient:
     async def update_access_code(self, client: httpx.AsyncClient, uuid: str, code: str):
         params = await self._auth_params(client)
         url = self._url(f"jdev/sps/updateuseraccesscode/{uuid}/{code}")
-        resp = await client.get(url, params=params, timeout=20, verify=self.verify)
+        resp = await client.get(url, params=params, timeout=20)
         resp.raise_for_status()
         return resp.json().get("LL", {}).get("Code")
 
@@ -194,7 +181,7 @@ class LoxoneClient:
     async def delete_user(self, client: httpx.AsyncClient, uuid: str):
         params = await self._auth_params(client)
         url = self._url(f"jdev/sps/deleteuser/{uuid}")
-        resp = await client.get(url, params=params, timeout=20, verify=self.verify)
+        resp = await client.get(url, params=params, timeout=20)
         resp.raise_for_status()
 
     @staticmethod
