@@ -81,7 +81,9 @@ class SyncService:
     async def sync_hotel(self, hotel_id: str, cfg: HotelConfig):
         now = pendulum.now(tz=cfg.timezone or "UTC")
         logger.info("Sync start %s", hotel_id)
-        async with httpx.AsyncClient() as prev_client, httpx.AsyncClient(verify=cfg.loxone.verify_tls) as lox_client:
+        async with httpx.AsyncClient() as prev_client, httpx.AsyncClient(
+            verify=cfg.loxone.verify_tls, follow_redirects=True
+        ) as lox_client:
             previo = PrevioClient(cfg)
             lox_verify = cfg.loxone.verify_tls
             lox = LoxoneClient(cfg, verify_override=lox_verify)
@@ -105,7 +107,7 @@ class SyncService:
             # refresh lox client with DB override
             lox = LoxoneClient(cfg, verify_override=lox_verify)
             # recreate lox http client with override
-            async with httpx.AsyncClient(verify=lox_verify) as lox_client_override:
+            async with httpx.AsyncClient(verify=lox_verify, follow_redirects=True) as lox_client_override:
                 start_date, end_date = previo.compute_window(now, cfg.timezone or "UTC", before, after)
                 try:
                     reservations = await previo.search_reservations(prev_client, start_date, end_date)
