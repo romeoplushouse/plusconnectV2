@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 import pendulum
-from tenacity import retry, stop_after_attempt, wait_fixed
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_fixed
 
 from .config import HotelConfig
 
@@ -18,7 +18,9 @@ logger = logging.getLogger(__name__)
 
 
 class LoxoneAuthError(Exception):
-    pass
+    def __init__(self, message: str, *, retryable: bool = False):
+        super().__init__(message)
+        self.retryable = retryable
 
 
 class LoxoneClient:
@@ -39,11 +41,12 @@ class LoxoneClient:
             resp.raise_for_status()
             return resp
         except httpx.RequestError as exc:
-            raise LoxoneAuthError(f"{method} {url} request failed: {exc}") from exc
+            raise LoxoneAuthError(f"{method} {url} request failed: {exc}", retryable=True) from exc
         except httpx.HTTPStatusError as exc:
             body = exc.response.text[:200]
+            retryable = 500 <= exc.response.status_code < 600
             raise LoxoneAuthError(
-                f"{method} {url} HTTP {exc.response.status_code}: {body}"
+                f"{method} {url} HTTP {exc.response.status_code}: {body}", retryable=retryable
             ) from exc
 
     def _parse_ll_value(self, resp: httpx.Response, action: str) -> Any:
@@ -110,7 +113,7 @@ class LoxoneClient:
         token, key = await self.acquire_token(client)
         return {"autht": self._token_hash(token, key), "user": self.cfg.loxone.username}
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1), retry=retry_if_exception(lambda e: isinstance(e, LoxoneAuthError) and e.retryable), reraise=True)
     async def get_group_map(self, client: httpx.AsyncClient) -> Dict[str, str]:
         params = await self._auth_params(client)
         url = self._url("jdev/sps/getgrouplist")
@@ -134,7 +137,7 @@ class LoxoneClient:
             raise LoxoneAuthError(f"No groups returned from getgrouplist body={resp.text[:200]}")
         return groups
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1), retry=retry_if_exception(lambda e: isinstance(e, LoxoneAuthError) and e.retryable), reraise=True)
     async def check_userid(self, client: httpx.AsyncClient, userid: str) -> Optional[str]:
         params = await self._auth_params(client)
         url = self._url(f"jdev/sps/checkuserid/{userid}")
@@ -142,7 +145,7 @@ class LoxoneClient:
         val = self._parse_ll_value(resp, "checkuserid") or {}
         return val.get("uuid") if isinstance(val, dict) else None
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1), retry=retry_if_exception(lambda e: isinstance(e, LoxoneAuthError) and e.retryable), reraise=True)
     async def add_or_edit_user(self, client: httpx.AsyncClient, payload: Dict[str, Any], uuid: Optional[str]) -> str:
         params = await self._auth_params(client)
         if uuid:
@@ -154,7 +157,7 @@ class LoxoneClient:
             raise LoxoneAuthError("addoredituser returned empty value")
         return val if isinstance(val, str) else val.get("uuid", "")
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1), retry=retry_if_exception(lambda e: isinstance(e, LoxoneAuthError) and e.retryable), reraise=True)
     async def update_access_code(self, client: httpx.AsyncClient, uuid: str, code: str):
         params = await self._auth_params(client)
         url = self._url(f"jdev/sps/updateuseraccesscode/{uuid}/{code}")
@@ -162,7 +165,7 @@ class LoxoneClient:
         ll = self._parse_ll_value(resp, "updateuseraccesscode") or {}
         return ll.get("Code") if isinstance(ll, dict) else None
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1), retry=retry_if_exception(lambda e: isinstance(e, LoxoneAuthError) and e.retryable), reraise=True)
     async def delete_user(self, client: httpx.AsyncClient, uuid: str):
         params = await self._auth_params(client)
         url = self._url(f"jdev/sps/deleteuser/{uuid}")
