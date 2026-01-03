@@ -93,6 +93,8 @@ class LoxoneClient:
             root = resp.json()
         except Exception as exc:
             raise LoxoneAuthError(f"getgrouplist invalid JSON: {exc} body={resp.text[:200]}") from exc
+        if not isinstance(root, dict):
+            raise LoxoneAuthError(f"Unexpected getgrouplist root type: {type(root)} body={resp.text[:200]}")
         payload = root.get("LL", {}).get("value", [])
         if not isinstance(payload, list):
             raise LoxoneAuthError(f"Unexpected getgrouplist payload type: {type(payload)} body={resp.text[:200]}")
