@@ -46,11 +46,25 @@ class LoxoneClient:
                 f"{method} {url} HTTP {exc.response.status_code}: {body}"
             ) from exc
 
+    def _parse_ll_value(self, resp: httpx.Response, action: str) -> Any:
+        try:
+            root = resp.json()
+        except Exception as exc:
+            raise LoxoneAuthError(f"{action} invalid JSON: {exc} body={resp.text[:200]}") from exc
+        if not isinstance(root, dict):
+            raise LoxoneAuthError(f"{action} unexpected root type: {type(root)} body={resp.text[:200]}")
+        ll = root.get("LL", {})
+        if not isinstance(ll, dict):
+            raise LoxoneAuthError(f"{action} unexpected LL type: {type(ll)} body={resp.text[:200]}")
+        code = ll.get("Code")
+        if code not in (200, "200", None):
+            raise LoxoneAuthError(f"{action} returned Code {code}: {ll.get('value') or ll} body={resp.text[:200]}")
+        return ll.get("value", {})
+
     async def _getkey2(self, client: httpx.AsyncClient) -> Dict[str, Any]:
         url = self._url(f"jdev/sys/getkey2/{self.cfg.loxone.username}")
         resp = await self._request(client, "GET", url, timeout=20)
-        data = resp.json().get("LL", {}).get("value", {})
-        return data
+        return self._parse_ll_value(resp, "getkey2")
 
     def _hash_password(self, password: str, salt: str, hash_alg: str) -> str:
         algo = hashlib.sha256 if hash_alg.lower() == "sha256" else hashlib.sha1
@@ -82,7 +96,7 @@ class LoxoneClient:
         )
         url = self._url(cmd)
         resp = await self._request(client, "GET", url, timeout=20)
-        value = resp.json().get("LL", {}).get("value", {})
+        value = self._parse_ll_value(resp, "getjwt")
         token = value.get("token")
         token_key = value.get("key")
         if not token or not token_key:
@@ -101,19 +115,10 @@ class LoxoneClient:
         params = await self._auth_params(client)
         url = self._url("jdev/sps/getgrouplist")
         resp = await self._request(client, "GET", url, params=params, timeout=20)
+        payload = self._parse_ll_value(resp, "getgrouplist")
+        if not isinstance(payload, list):
+            raise LoxoneAuthError(f"getgrouplist payload type {type(payload)} body={resp.text[:200]}")
         try:
-            root = resp.json()
-        except Exception as exc:
-            raise LoxoneAuthError(f"getgrouplist invalid JSON: {exc} body={resp.text[:200]}") from exc
-        if not isinstance(root, dict):
-            raise LoxoneAuthError(f"Unexpected getgrouplist root type: {type(root)} body={resp.text[:200]}")
-        try:
-            ll = root.get("LL", {})
-            if not isinstance(ll, dict):
-                raise LoxoneAuthError(f"Unexpected getgrouplist LL type: {type(ll)} body={resp.text[:200]}")
-            payload = ll.get("value", [])
-            if not isinstance(payload, list):
-                raise LoxoneAuthError(f"Unexpected getgrouplist payload type: {type(payload)} body={resp.text[:200]}")
             groups = {
                 g.get("name"): g.get("uuid")
                 for g in payload
@@ -130,8 +135,8 @@ class LoxoneClient:
         params = await self._auth_params(client)
         url = self._url(f"jdev/sps/checkuserid/{userid}")
         resp = await self._request(client, "GET", url, params=params, timeout=20)
-        val = resp.json().get("LL", {}).get("value", {})
-        return val.get("uuid") if val else None
+        val = self._parse_ll_value(resp, "checkuserid") or {}
+        return val.get("uuid") if isinstance(val, dict) else None
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
     async def add_or_edit_user(self, client: httpx.AsyncClient, payload: Dict[str, Any], uuid: Optional[str]) -> str:
@@ -140,7 +145,7 @@ class LoxoneClient:
             payload["uuid"] = uuid
         url = self._url("jdev/sps/addoredituser")
         resp = await self._request(client, "POST", url, params=params, json=payload, timeout=20)
-        val = resp.json().get("LL", {}).get("value")
+        val = self._parse_ll_value(resp, "addoredituser")
         if not val:
             raise LoxoneAuthError("addoredituser returned empty value")
         return val if isinstance(val, str) else val.get("uuid", "")
@@ -150,7 +155,8 @@ class LoxoneClient:
         params = await self._auth_params(client)
         url = self._url(f"jdev/sps/updateuseraccesscode/{uuid}/{code}")
         resp = await self._request(client, "GET", url, params=params, timeout=20)
-        return resp.json().get("LL", {}).get("Code")
+        ll = self._parse_ll_value(resp, "updateuseraccesscode") or {}
+        return ll.get("Code") if isinstance(ll, dict) else None
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
     async def delete_user(self, client: httpx.AsyncClient, uuid: str):
