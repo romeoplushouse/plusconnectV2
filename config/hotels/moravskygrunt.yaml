@@ -1,9 +1,9 @@
 hotel_id: moravskygrunt
 previo:
   api_url: https://api.previo.app/
-  login: "<PREVIO_LOGIN>"
-  password: "<PREVIO_PASSWORD>"
-  hot_id: 2
+  login: "test_api_loxone@plushouse.cz"
+  password: "35z9H80uI5Zt"
+  hot_id: 730099
   lan_id: 1
   search:
     statuses: [1, 2, 3]
