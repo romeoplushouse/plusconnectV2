@@ -95,10 +95,17 @@ class LoxoneClient:
             raise LoxoneAuthError(f"getgrouplist invalid JSON: {exc} body={resp.text[:200]}") from exc
         if not isinstance(root, dict):
             raise LoxoneAuthError(f"Unexpected getgrouplist root type: {type(root)} body={resp.text[:200]}")
-        payload = root.get("LL", {}).get("value", [])
-        if not isinstance(payload, list):
-            raise LoxoneAuthError(f"Unexpected getgrouplist payload type: {type(payload)} body={resp.text[:200]}")
-        groups = {g.get("name"): g.get("uuid") for g in payload if isinstance(g, dict) and g.get("name") and g.get("uuid")}
+        try:
+            payload = root.get("LL", {}).get("value", [])
+            if not isinstance(payload, list):
+                raise LoxoneAuthError(f"Unexpected getgrouplist payload type: {type(payload)} body={resp.text[:200]}")
+            groups = {
+                g.get("name"): g.get("uuid")
+                for g in payload
+                if isinstance(g, dict) and g.get("name") and g.get("uuid")
+            }
+        except TypeError as exc:
+            raise LoxoneAuthError(f"TypeError parsing getgrouplist payload: {exc} body={resp.text[:200]}") from exc
         if not groups:
             raise LoxoneAuthError(f"No groups returned from getgrouplist body={resp.text[:200]}")
         return groups
