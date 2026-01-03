@@ -116,14 +116,18 @@ class LoxoneClient:
         url = self._url("jdev/sps/getgrouplist")
         resp = await self._request(client, "GET", url, params=params, timeout=20)
         payload = self._parse_ll_value(resp, "getgrouplist")
-        if not isinstance(payload, list):
-            raise LoxoneAuthError(f"getgrouplist payload type {type(payload)} body={resp.text[:200]}")
+        groups: Dict[str, str] = {}
         try:
-            groups = {
-                g.get("name"): g.get("uuid")
-                for g in payload
-                if isinstance(g, dict) and g.get("name") and g.get("uuid")
-            }
+            if isinstance(payload, list):
+                groups = {
+                    g.get("name"): g.get("uuid")
+                    for g in payload
+                    if isinstance(g, dict) and g.get("name") and g.get("uuid")
+                }
+            elif isinstance(payload, dict):
+                groups = {k: v for k, v in payload.items() if isinstance(k, str) and isinstance(v, str)}
+            else:
+                raise LoxoneAuthError(f"getgrouplist payload type {type(payload)} body={resp.text[:200]}")
         except TypeError as exc:
             raise LoxoneAuthError(f"TypeError parsing getgrouplist payload: {exc} body={resp.text[:200]}") from exc
         if not groups:
