@@ -36,6 +36,10 @@ class LoxoneClient:
     def _url(self, path: str) -> str:
         return f"{self.scheme}://{self.base_host}/{path.lstrip('/')}"
 
+    def _reset_auth_cache(self):
+        self._auth_cache = None
+        self._auth_cache_expiry = None
+
     async def _request(self, client: httpx.AsyncClient, method: str, url: str, **kwargs) -> httpx.Response:
         kwargs.setdefault("follow_redirects", self.follow_redirects)
         try:
@@ -63,7 +67,13 @@ class LoxoneClient:
             raise LoxoneAuthError(f"{action} unexpected LL type: {type(ll)} body={resp.text[:200]}")
         code = ll.get("Code")
         if code not in (200, "200", None):
-            raise LoxoneAuthError(f"{action} returned Code {code}: {ll.get('value') or ll} body={resp.text[:200]}")
+            retryable = str(code) in {"401", "403"}
+            if retryable:
+                self._reset_auth_cache()
+            raise LoxoneAuthError(
+                f"{action} returned Code {code}: {ll.get('value') or ll} body={resp.text[:200]}",
+                retryable=retryable,
+            )
         return ll.get("value", {})
 
     async def _getkey2(self, client: httpx.AsyncClient) -> Dict[str, Any]:
