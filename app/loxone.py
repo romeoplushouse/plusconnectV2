@@ -33,10 +33,18 @@ class LoxoneClient:
 
     async def _getkey2(self, client: httpx.AsyncClient) -> Dict[str, Any]:
         url = self._url(f"jdev/sys/getkey2/{self.cfg.loxone.username}")
-        resp = await client.get(url, timeout=20, verify=self.verify)
-        resp.raise_for_status()
-        data = resp.json().get("LL", {}).get("value", {})
-        return data
+        try:
+            resp = await client.get(url, timeout=20, verify=self.verify)
+            resp.raise_for_status()
+        except httpx.RequestError as exc:
+            raise LoxoneAuthError(f"getkey2 request failed: {exc}") from exc
+        except httpx.HTTPStatusError as exc:
+            raise LoxoneAuthError(f"getkey2 HTTP {exc.response.status_code}: {exc.response.text[:200]}") from exc
+        try:
+            data = resp.json().get("LL", {}).get("value", {})
+        except Exception as exc:
+            raise LoxoneAuthError(f"getkey2 invalid JSON: {exc} body={resp.text[:200]}") from exc
+        return data or {}
 
     def _hash_password(self, password: str, salt: str, hash_alg: str) -> str:
         algo = hashlib.sha256 if hash_alg.lower() == "sha256" else hashlib.sha1
@@ -57,7 +65,7 @@ class LoxoneClient:
         salt = meta.get("salt")
         hash_alg = meta.get("hashAlg", "sha1")
         if not key or not salt:
-            raise LoxoneAuthError("Missing key/salt from getkey2")
+            raise LoxoneAuthError("Missing key/salt from getkey2 (auth likely failed)")
 
         pass_hash = self._hash_password(self.cfg.loxone.password, salt, hash_alg)
         hash_value = self._hmac(key, f"{self.cfg.loxone.username}:{pass_hash}", hash_alg)
@@ -67,13 +75,22 @@ class LoxoneClient:
             f"{self.cfg.loxone.client_info}"
         )
         url = self._url(cmd)
-        resp = await client.get(url, timeout=20, verify=self.verify)
-        resp.raise_for_status()
-        value = resp.json().get("LL", {}).get("value", {})
-        token = value.get("token")
-        token_key = value.get("key")
+        try:
+            resp = await client.get(url, timeout=20, verify=self.verify)
+            resp.raise_for_status()
+        except httpx.RequestError as exc:
+            raise LoxoneAuthError(f"getjwt request failed: {exc}") from exc
+        except httpx.HTTPStatusError as exc:
+            raise LoxoneAuthError(f"getjwt HTTP {exc.response.status_code}: {exc.response.text[:200]}") from exc
+        body_snippet = resp.text[:200]
+        try:
+            value = resp.json().get("LL", {}).get("value", {})
+        except Exception as exc:
+            raise LoxoneAuthError(f"getjwt invalid JSON: {exc} body={body_snippet}") from exc
+        token = value.get("token") if isinstance(value, dict) else None
+        token_key = value.get("key") if isinstance(value, dict) else None
         if not token or not token_key:
-            raise LoxoneAuthError("Failed to get JWT token")
+            raise LoxoneAuthError(f"Failed to get JWT token body={body_snippet}")
         return token, token_key
 
     def _token_hash(self, token: str, key_hex: str) -> str:
