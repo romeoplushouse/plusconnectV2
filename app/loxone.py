@@ -89,12 +89,16 @@ class LoxoneClient:
         url = self._url("jdev/sps/getgrouplist")
         resp = await client.get(url, params=params, timeout=20, verify=self.verify)
         resp.raise_for_status()
-        payload = resp.json().get("LL", {}).get("value", [])
+        try:
+            root = resp.json()
+        except Exception as exc:
+            raise LoxoneAuthError(f"getgrouplist invalid JSON: {exc} body={resp.text[:200]}") from exc
+        payload = root.get("LL", {}).get("value", [])
         if not isinstance(payload, list):
-            raise LoxoneAuthError(f"Unexpected getgrouplist payload type: {type(payload)}")
+            raise LoxoneAuthError(f"Unexpected getgrouplist payload type: {type(payload)} body={resp.text[:200]}")
         groups = {g.get("name"): g.get("uuid") for g in payload if isinstance(g, dict) and g.get("name") and g.get("uuid")}
         if not groups:
-            raise LoxoneAuthError("No groups returned from getgrouplist")
+            raise LoxoneAuthError(f"No groups returned from getgrouplist body={resp.text[:200]}")
         return groups
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
