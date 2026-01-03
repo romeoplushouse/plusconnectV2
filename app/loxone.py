@@ -50,7 +50,9 @@ class LoxoneClient:
             raise LoxoneAuthError(f"{method} {url} request failed: {exc}", retryable=True) from exc
         except httpx.HTTPStatusError as exc:
             body = exc.response.text[:200]
-            retryable = 500 <= exc.response.status_code < 600
+            retryable = exc.response.status_code in {401, 403} or 500 <= exc.response.status_code < 600
+            if exc.response.status_code in {401, 403}:
+                self._reset_auth_cache()
             raise LoxoneAuthError(
                 f"{method} {url} HTTP {exc.response.status_code}: {body}", retryable=retryable
             ) from exc
