@@ -6,7 +6,7 @@ import hmac
 import logging
 import os
 import secrets
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 import httpx
 import pendulum
@@ -30,6 +30,8 @@ class LoxoneClient:
         self.scheme = "https" if cfg.loxone.https else "http"
         self.verify = cfg.loxone.verify_tls if verify_override is None else verify_override
         self.follow_redirects = True
+        self._auth_cache: Optional[Dict[str, Any]] = None
+        self._auth_cache_expiry: Optional[pendulum.DateTime] = None
 
     def _url(self, path: str) -> str:
         return f"{self.scheme}://{self.base_host}/{path.lstrip('/')}"
@@ -110,8 +112,15 @@ class LoxoneClient:
         return hmac.new(bytes.fromhex(key_hex), token.encode("utf-8"), hashlib.sha1).hexdigest()
 
     async def _auth_params(self, client: httpx.AsyncClient) -> Dict[str, str]:
+        now = pendulum.now("UTC")
+        if self._auth_cache and self._auth_cache_expiry and now < self._auth_cache_expiry:
+            return self._auth_cache
         token, key = await self.acquire_token(client)
-        return {"autht": self._token_hash(token, key), "user": self.cfg.loxone.username}
+        params = {"autht": self._token_hash(token, key), "user": self.cfg.loxone.username}
+        # Cache for a short window to avoid repeated JWT calls during a sync burst.
+        self._auth_cache = params
+        self._auth_cache_expiry = now.add(minutes=5)
+        return params
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(1), retry=retry_if_exception(lambda e: isinstance(e, LoxoneAuthError) and e.retryable), reraise=True)
     async def get_group_map(self, client: httpx.AsyncClient) -> Dict[str, str]:
