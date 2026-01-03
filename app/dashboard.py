@@ -35,6 +35,12 @@ def _render(template: str, **context):
     return HTMLResponse(tmpl.render(**context))
 
 
+def _safe_obj(obj, fields):
+    if not obj:
+        return None
+    return {f: getattr(obj, f, None) for f in fields}
+
+
 from .deps import get_hotels
 
 
@@ -65,13 +71,34 @@ async def hotel_detail(request: Request, hotel_id: str, hotels: Dict[str, HotelC
         state = session.get(HotelState, hotel_id)
         logs = session.query(LogEntry).filter(LogEntry.hotel_id == hotel_id).order_by(LogEntry.id.desc()).limit(50).all()
         settings = session.get(HotelSettings, hotel_id)
+        state_data = _safe_obj(state, ["last_sync_at", "last_success_at"])
+        settings_data = _safe_obj(
+            settings,
+            [
+                "interval_minutes",
+                "delete_after_hours",
+                "offset_minutes_before",
+                "offset_minutes_after",
+                "window_days_before",
+                "window_days_after",
+                "verify_tls",
+            ],
+        )
+        logs_data = [
+            {
+                "created_at": log.created_at,
+                "level": log.level,
+                "message": log.message,
+            }
+            for log in logs
+        ]
     logo_data = _load_logo_data()
     return _render(
         "hotel.html",
         hotel_id=hotel_id,
-        state=state,
-        logs=logs,
-        settings=settings,
+        state=state_data,
+        logs=logs_data,
+        settings=settings_data,
         request=request,
         logo_data=logo_data,
     )
