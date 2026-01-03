@@ -33,18 +33,25 @@ class LoxoneClient:
 
     async def _getkey2(self, client: httpx.AsyncClient) -> Dict[str, Any]:
         url = self._url(f"jdev/sys/getkey2/{self.cfg.loxone.username}")
-        try:
-            resp = await client.get(url, timeout=20, verify=self.verify)
-            resp.raise_for_status()
-        except httpx.RequestError as exc:
-            raise LoxoneAuthError(f"getkey2 request failed: {exc}") from exc
-        except httpx.HTTPStatusError as exc:
-            raise LoxoneAuthError(f"getkey2 HTTP {exc.response.status_code}: {exc.response.text[:200]}") from exc
-        try:
-            data = resp.json().get("LL", {}).get("value", {})
-        except Exception as exc:
-            raise LoxoneAuthError(f"getkey2 invalid JSON: {exc} body={resp.text[:200]}") from exc
-        return data or {}
+        last_exc: Optional[Exception] = None
+        for verify_opt in (self.verify, False) if self.verify else (self.verify,):
+            try:
+                resp = await client.get(url, timeout=20, verify=verify_opt)
+                resp.raise_for_status()
+                try:
+                    data = resp.json().get("LL", {}).get("value", {})
+                except Exception as exc:
+                    raise LoxoneAuthError(f"getkey2 invalid JSON: {exc} body={resp.text[:200]}") from exc
+                return data or {}
+            except httpx.RequestError as exc:
+                last_exc = exc
+                if verify_opt is False:
+                    break
+            except httpx.HTTPStatusError as exc:
+                raise LoxoneAuthError(
+                    f"getkey2 HTTP {exc.response.status_code}: {exc.response.text[:200]} (verify={verify_opt})"
+                ) from exc
+        raise LoxoneAuthError(f"getkey2 request failed (verify={self.verify}): {last_exc}")
 
     def _hash_password(self, password: str, salt: str, hash_alg: str) -> str:
         algo = hashlib.sha256 if hash_alg.lower() == "sha256" else hashlib.sha1
@@ -75,23 +82,30 @@ class LoxoneClient:
             f"{self.cfg.loxone.client_info}"
         )
         url = self._url(cmd)
-        try:
-            resp = await client.get(url, timeout=20, verify=self.verify)
-            resp.raise_for_status()
-        except httpx.RequestError as exc:
-            raise LoxoneAuthError(f"getjwt request failed: {exc}") from exc
-        except httpx.HTTPStatusError as exc:
-            raise LoxoneAuthError(f"getjwt HTTP {exc.response.status_code}: {exc.response.text[:200]}") from exc
-        body_snippet = resp.text[:200]
-        try:
-            value = resp.json().get("LL", {}).get("value", {})
-        except Exception as exc:
-            raise LoxoneAuthError(f"getjwt invalid JSON: {exc} body={body_snippet}") from exc
-        token = value.get("token") if isinstance(value, dict) else None
-        token_key = value.get("key") if isinstance(value, dict) else None
-        if not token or not token_key:
-            raise LoxoneAuthError(f"Failed to get JWT token body={body_snippet}")
-        return token, token_key
+        last_exc: Optional[Exception] = None
+        for verify_opt in (self.verify, False) if self.verify else (self.verify,):
+            try:
+                resp = await client.get(url, timeout=20, verify=verify_opt)
+                resp.raise_for_status()
+                body_snippet = resp.text[:200]
+                try:
+                    value = resp.json().get("LL", {}).get("value", {})
+                except Exception as exc:
+                    raise LoxoneAuthError(f"getjwt invalid JSON: {exc} body={body_snippet}") from exc
+                token = value.get("token") if isinstance(value, dict) else None
+                token_key = value.get("key") if isinstance(value, dict) else None
+                if not token or not token_key:
+                    raise LoxoneAuthError(f"Failed to get JWT token body={body_snippet} verify={verify_opt}")
+                return token, token_key
+            except httpx.RequestError as exc:
+                last_exc = exc
+                if verify_opt is False:
+                    break
+            except httpx.HTTPStatusError as exc:
+                raise LoxoneAuthError(
+                    f"getjwt HTTP {exc.response.status_code}: {exc.response.text[:200]} (verify={verify_opt})"
+                ) from exc
+        raise LoxoneAuthError(f"getjwt request failed (verify={self.verify}): {last_exc}")
 
     def _token_hash(self, token: str, key_hex: str) -> str:
         return hmac.new(bytes.fromhex(key_hex), token.encode("utf-8"), hashlib.sha1).hexdigest()
