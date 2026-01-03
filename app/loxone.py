@@ -85,41 +85,46 @@ class LoxoneClient:
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
     async def get_group_map(self, client: httpx.AsyncClient) -> Dict[str, str]:
-        params = await self._auth_params(client)
-        url = self._url("jdev/sps/getgrouplist")
         try:
-            resp = await client.get(url, params=params, timeout=20, verify=self.verify)
-            resp.raise_for_status()
-        except httpx.RequestError as exc:
-            raise LoxoneAuthError(f"getgrouplist request failed: {exc}") from exc
-        except httpx.HTTPStatusError as exc:
-            raise LoxoneAuthError(f"getgrouplist HTTP {exc.response.status_code}: {exc.response.text[:200]}") from exc
-        body_snippet = resp.text[:500]
-        try:
-            root = resp.json()
-        except Exception as exc:
-            raise LoxoneAuthError(f"getgrouplist invalid JSON: {exc} body={body_snippet}") from exc
-        if not isinstance(root, dict):
-            raise LoxoneAuthError(f"Unexpected getgrouplist root type: {type(root)} body={body_snippet}")
-        try:
-            ll = root.get("LL", {})
-            if not isinstance(ll, dict):
-                raise LoxoneAuthError(f"Unexpected getgrouplist LL type: {type(ll)} body={body_snippet}")
-            payload = ll.get("value", [])
-            if not isinstance(payload, list):
-                raise LoxoneAuthError(f"Unexpected getgrouplist payload type: {type(payload)} body={body_snippet}")
-            groups = {
-                g.get("name"): g.get("uuid")
-                for g in payload
-                if isinstance(g, dict) and g.get("name") and g.get("uuid")
-            }
+            params = await self._auth_params(client)
+            url = self._url("jdev/sps/getgrouplist")
+            try:
+                resp = await client.get(url, params=params, timeout=20, verify=self.verify)
+                resp.raise_for_status()
+            except httpx.RequestError as exc:
+                raise LoxoneAuthError(f"getgrouplist request failed: {exc}") from exc
+            except httpx.HTTPStatusError as exc:
+                raise LoxoneAuthError(
+                    f"getgrouplist HTTP {exc.response.status_code}: {exc.response.text[:200]}"
+                ) from exc
+            body_snippet = resp.text[:500]
+            try:
+                root = resp.json()
+            except Exception as exc:
+                raise LoxoneAuthError(f"getgrouplist invalid JSON: {exc} body={body_snippet}") from exc
+            if not isinstance(root, dict):
+                raise LoxoneAuthError(f"Unexpected getgrouplist root type: {type(root)} body={body_snippet}")
+            try:
+                ll = root.get("LL", {})
+                if not isinstance(ll, dict):
+                    raise LoxoneAuthError(f"Unexpected getgrouplist LL type: {type(ll)} body={body_snippet}")
+                payload = ll.get("value", [])
+                if not isinstance(payload, list):
+                    raise LoxoneAuthError(f"Unexpected getgrouplist payload type: {type(payload)} body={body_snippet}")
+                groups = {
+                    g.get("name"): g.get("uuid")
+                    for g in payload
+                    if isinstance(g, dict) and g.get("name") and g.get("uuid")
+                }
+            except TypeError as exc:
+                raise LoxoneAuthError(f"TypeError parsing getgrouplist payload: {exc} body={body_snippet}") from exc
+            except Exception as exc:
+                raise LoxoneAuthError(f"getgrouplist parse error: {exc} body={body_snippet}") from exc
+            if not groups:
+                raise LoxoneAuthError(f"No groups returned from getgrouplist body={body_snippet}")
+            return groups
         except TypeError as exc:
-            raise LoxoneAuthError(f"TypeError parsing getgrouplist payload: {exc} body={body_snippet}") from exc
-        except Exception as exc:
-            raise LoxoneAuthError(f"getgrouplist parse error: {exc} body={body_snippet}") from exc
-        if not groups:
-            raise LoxoneAuthError(f"No groups returned from getgrouplist body={body_snippet}")
-        return groups
+            raise LoxoneAuthError(f"TypeError in getgrouplist flow: {exc}") from exc
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
     async def check_userid(self, client: httpx.AsyncClient, userid: str) -> Optional[str]:
