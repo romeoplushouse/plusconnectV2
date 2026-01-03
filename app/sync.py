@@ -22,6 +22,7 @@ class SyncService:
     def __init__(self, configs: Dict[str, HotelConfig]):
         self.configs = configs
         self.running = False
+        self.lox_clients: Dict[str, tuple[bool, LoxoneClient]] = {}
 
     async def ensure_defaults(self):
         from .db import Base, engine
@@ -86,7 +87,7 @@ class SyncService:
                 delete_after = cfg.sync.delete_after_hours
 
         previo = PrevioClient(cfg)
-        lox = LoxoneClient(cfg, verify_override=lox_verify)
+        lox = self._get_lox_client(hotel_id, cfg, lox_verify)
         async with httpx.AsyncClient() as previo_client, httpx.AsyncClient(verify=lox_verify, follow_redirects=True) as lox_client:
             start_date, end_date = previo.compute_window(now, cfg.timezone or "UTC", before, after)
             try:
@@ -125,6 +126,14 @@ class SyncService:
                 state.last_success_at = now
 
             await self._cleanup_expired(lox_client, hotel_id, cfg, delete_after, lox)
+
+    def _get_lox_client(self, hotel_id: str, cfg: HotelConfig, verify: bool) -> LoxoneClient:
+        cached = self.lox_clients.get(hotel_id)
+        if cached and cached[0] == verify:
+            return cached[1]
+        lox = LoxoneClient(cfg, verify_override=verify)
+        self.lox_clients[hotel_id] = (verify, lox)
+        return lox
 
     async def _process_reservation(
         self,
