@@ -29,11 +29,11 @@ class LoxoneClient:
         self.verify = cfg.loxone.verify_tls if verify_override is None else verify_override
 
     def _url(self, path: str) -> str:
-        return f"{self.scheme}://{self.base_host}/{path.lstrip('/') }"
+        return f"{self.scheme}://{self.base_host}/{path.lstrip('/')}"
 
     async def _getkey2(self, client: httpx.AsyncClient) -> Dict[str, Any]:
         url = self._url(f"jdev/sys/getkey2/{self.cfg.loxone.username}")
-        resp = await client.get(url, timeout=20, verify=self.verify)
+        resp = await client.get(url, timeout=20)
         resp.raise_for_status()
         data = resp.json().get("LL", {}).get("value", {})
         return data
@@ -67,7 +67,7 @@ class LoxoneClient:
             f"{self.cfg.loxone.client_info}"
         )
         url = self._url(cmd)
-        resp = await client.get(url, timeout=20, verify=self.verify)
+        resp = await client.get(url, timeout=20)
         resp.raise_for_status()
         value = resp.json().get("LL", {}).get("value", {})
         token = value.get("token")
@@ -88,7 +88,7 @@ class LoxoneClient:
         params = await self._auth_params(client)
         url = self._url("jdev/sps/getgrouplist")
         try:
-            resp = await client.get(url, params=params, timeout=20, verify=self.verify)
+            resp = await client.get(url, params=params, timeout=20)
             resp.raise_for_status()
         except httpx.RequestError as exc:
             raise LoxoneAuthError(f"getgrouplist request failed: {exc}") from exc
@@ -122,7 +122,7 @@ class LoxoneClient:
     async def check_userid(self, client: httpx.AsyncClient, userid: str) -> Optional[str]:
         params = await self._auth_params(client)
         url = self._url(f"jdev/sps/checkuserid/{userid}")
-        resp = await client.get(url, params=params, timeout=20, verify=self.verify)
+        resp = await client.get(url, params=params, timeout=20)
         resp.raise_for_status()
         val = resp.json().get("LL", {}).get("value", {})
         return val.get("uuid") if val else None
@@ -133,7 +133,7 @@ class LoxoneClient:
         if uuid:
             payload["uuid"] = uuid
         url = self._url("jdev/sps/addoredituser")
-        resp = await client.post(url, params=params, json=payload, timeout=20, verify=self.verify)
+        resp = await client.post(url, params=params, json=payload, timeout=20)
         resp.raise_for_status()
         val = resp.json().get("LL", {}).get("value")
         if not val:
@@ -144,7 +144,7 @@ class LoxoneClient:
     async def update_access_code(self, client: httpx.AsyncClient, uuid: str, code: str):
         params = await self._auth_params(client)
         url = self._url(f"jdev/sps/updateuseraccesscode/{uuid}/{code}")
-        resp = await client.get(url, params=params, timeout=20, verify=self.verify)
+        resp = await client.get(url, params=params, timeout=20)
         resp.raise_for_status()
         return resp.json().get("LL", {}).get("Code")
 
@@ -152,7 +152,7 @@ class LoxoneClient:
     async def delete_user(self, client: httpx.AsyncClient, uuid: str):
         params = await self._auth_params(client)
         url = self._url(f"jdev/sps/deleteuser/{uuid}")
-        resp = await client.get(url, params=params, timeout=20, verify=self.verify)
+        resp = await client.get(url, params=params, timeout=20)
         resp.raise_for_status()
 
     @staticmethod
