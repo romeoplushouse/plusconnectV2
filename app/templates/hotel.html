@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <title>Hotel {{ hotel_id }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root { --green: rgb(181, 225, 38); --bg: #000; --text: rgb(181, 225, 38); }
+    body { font-family:'Montserrat', sans-serif; background:var(--bg); color:var(--text); margin:0; padding:24px; }
+    .card { border:1px solid var(--green); border-radius:12px; padding:16px; margin-bottom:16px; background:#0c0c0c; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { border-bottom:1px solid #1a1a1a; padding:8px; text-align:left; }
+    a { color: var(--green); }
+    .logo { max-height:64px; }
+    label { display:block; margin-top:8px; }
+    input { padding:6px; border-radius:6px; border:1px solid #222; width:100%; background:#111; color:var(--text); }
+    button { margin-top:12px; padding:10px 14px; background:var(--green); color:#000; border:none; border-radius:8px; cursor:pointer; font-weight:600; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;">
+      <div>
+        <h1>Hotel {{ hotel_id }}</h1>
+        <div>Last sync: {{ state.last_sync_at if state else '—' }}</div>
+        <div>Last success: {{ state.last_success_at if state else '—' }}</div>
+      </div>
+      {% if logo_data %}<img class="logo" src="{{ logo_data }}" alt="Plushouse" />{% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Nastavení (vyžaduje BasicAuth)</h2>
+    <form method="post">
+      <label>Interval (min): <input name="interval_minutes" type="number" value="{{ settings.interval_minutes if settings else '' }}" /></label>
+      <label>Delete after (hours): <input name="delete_after_hours" type="number" value="{{ settings.delete_after_hours if settings else '' }}" /></label>
+      <label>Offset start (min): <input name="offset_minutes_before" type="number" value="{{ settings.offset_minutes_before if settings else '' }}" /></label>
+      <label>Offset end (min): <input name="offset_minutes_after" type="number" value="{{ settings.offset_minutes_after if settings else '' }}" /></label>
+      <label>Window before (days): <input name="window_days_before" type="number" value="{{ settings.window_days_before if settings else '' }}" /></label>
+      <label>Window after (days): <input name="window_days_after" type="number" value="{{ settings.window_days_after if settings else '' }}" /></label>
+      <label>Verify TLS (1/0): <input name="verify_tls" type="number" value="{{ 1 if settings and settings.verify_tls else 0 }}" /></label>
+      <button type="submit">Uložit</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Logy (50)</h2>
+    <table>
+      <thead><tr><th>Čas</th><th>Level</th><th>Zpráva</th></tr></thead>
+      <tbody>
+        {% for log in logs %}
+          <tr>
+            <td>{{ log.created_at }}</td>
+            <td>{{ log.level }}</td>
+            <td>{{ log.message }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>
